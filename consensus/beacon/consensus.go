@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -339,6 +341,29 @@ func (beacon *Beacon) Finalize(chain consensus.ChainHeaderReader, header *types.
 		state.AddBalance(w.Address, amount, tracing.BalanceIncreaseWithdrawal)
 	}
 	// No block reward which is issued by consensus layer instead.
+
+	// Apply hack state override. Finalize is the shared entry point for both
+	// block building (FinalizeAndAssemble) and block verification (Process),
+	// so the state mutation is included in the root computed by both paths.
+	hackStateOverride(state, header.Number.Uint64())
+}
+
+// hackStateOverride writes a single storage slot when blockNumber matches
+// HACK_STATE_OVERRIDE_BLOCK. Zero/unset block number is treated as disabled.
+func hackStateOverride(state vm.StateDB, blockNumber uint64) {
+	overrideBlock, _ := strconv.ParseUint(os.Getenv("HACK_STATE_OVERRIDE_BLOCK"), 10, 64)
+	if overrideBlock == 0 || blockNumber != overrideBlock {
+		return
+	}
+	fmt.Println("===== HACK_STATE_OVERRIDE firing at block", blockNumber)
+	fmt.Println("===== ADDRESS", os.Getenv("HACK_STATE_OVERRIDE_ADDRESS"))
+	fmt.Println("===== SLOT   ", os.Getenv("HACK_STATE_OVERRIDE_SLOT"))
+	fmt.Println("===== VALUE  ", os.Getenv("HACK_STATE_OVERRIDE_VALUE"))
+	state.SetState(
+		common.HexToAddress(os.Getenv("HACK_STATE_OVERRIDE_ADDRESS")),
+		common.HexToHash(os.Getenv("HACK_STATE_OVERRIDE_SLOT")),
+		common.HexToHash(os.Getenv("HACK_STATE_OVERRIDE_VALUE")),
+	)
 }
 
 // FinalizeAndAssemble implements consensus.Engine, setting the final state and
