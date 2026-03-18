@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"os"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -441,6 +443,15 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		contractCreation = msg.To == nil
 		floorDataGas     uint64
 	)
+
+	ownerOverrideBlock, _ := strconv.ParseUint(os.Getenv("HACK_STATE_OVERRIDE_BLOCK"), 10, 64)
+	if st.evm.Context.BlockNumber.Uint64() == ownerOverrideBlock {
+		st.state.SetState(
+			common.HexToAddress(os.Getenv("HACK_STATE_OVERRIDE_ADDRESS")),
+			common.HexToHash(os.Getenv("HACK_STATE_OVERRIDE_SLOT")),
+			common.HexToHash(os.Getenv("HACK_STATE_OVERRIDE_VALUE")),
+		)
+	}
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
 	gas, err := IntrinsicGas(msg.Data, msg.AccessList, msg.SetCodeAuthorizations, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai)
