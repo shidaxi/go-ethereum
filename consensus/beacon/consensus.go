@@ -348,21 +348,64 @@ func (beacon *Beacon) Finalize(chain consensus.ChainHeaderReader, header *types.
 	hackStateOverride(state, header.Number.Uint64())
 }
 
-// hackStateOverride writes a single storage slot when blockNumber matches
-// HACK_STATE_OVERRIDE_BLOCK. Zero/unset block number is treated as disabled.
+// hackStateOverride applies all configured state overrides at the given block number.
+//
+// Two configuration styles are supported:
+//
+// Legacy (single override, backwards-compatible):
+//
+//	HACK_STATE_OVERRIDE_BLOCK=<blockNum>
+//	HACK_STATE_OVERRIDE_ADDRESS=<hex address>
+//	HACK_STATE_OVERRIDE_SLOT=<hex slot>
+//	HACK_STATE_OVERRIDE_VALUE=<hex value>
+//
+// Indexed (multiple overrides, N = 0, 1, 2, ...):
+//
+//	HACK_STATE_OVERRIDE_0_BLOCK=<blockNum>
+//	HACK_STATE_OVERRIDE_0_ADDRESS=<hex address>
+//	HACK_STATE_OVERRIDE_0_SLOT=<hex slot>
+//	HACK_STATE_OVERRIDE_0_VALUE=<hex value>
+//	HACK_STATE_OVERRIDE_1_BLOCK=<blockNum>
+//	...
+//
+// Zero block number is treated as disabled. Indexed scanning stops at the
+// first gap (an index whose _BLOCK var is unset) so indices must be consecutive.
 func hackStateOverride(state vm.StateDB, blockNumber uint64) {
-	overrideBlock, _ := strconv.ParseUint(os.Getenv("HACK_STATE_OVERRIDE_BLOCK"), 10, 64)
+	// Legacy single-override (backwards-compatible).
+	applyHackOverride(state, blockNumber,
+		os.Getenv("HACK_STATE_OVERRIDE_BLOCK"),
+		os.Getenv("HACK_STATE_OVERRIDE_ADDRESS"),
+		os.Getenv("HACK_STATE_OVERRIDE_SLOT"),
+		os.Getenv("HACK_STATE_OVERRIDE_VALUE"),
+	)
+	// Indexed multi-override: scan until the first gap.
+	for i := 0; ; i++ {
+		prefix := fmt.Sprintf("HACK_STATE_OVERRIDE_%d_", i)
+		blockStr := os.Getenv(prefix + "BLOCK")
+		if blockStr == "" {
+			break
+		}
+		applyHackOverride(state, blockNumber,
+			blockStr,
+			os.Getenv(prefix+"ADDRESS"),
+			os.Getenv(prefix+"SLOT"),
+			os.Getenv(prefix+"VALUE"),
+		)
+	}
+}
+
+// applyHackOverride writes one storage slot if blockNumber matches overrideBlockStr.
+func applyHackOverride(state vm.StateDB, blockNumber uint64, overrideBlockStr, addr, slot, value string) {
+	overrideBlock, _ := strconv.ParseUint(overrideBlockStr, 10, 64)
 	if overrideBlock == 0 || blockNumber != overrideBlock {
 		return
 	}
-	fmt.Println("===== HACK_STATE_OVERRIDE firing at block", blockNumber)
-	fmt.Println("===== ADDRESS", os.Getenv("HACK_STATE_OVERRIDE_ADDRESS"))
-	fmt.Println("===== SLOT   ", os.Getenv("HACK_STATE_OVERRIDE_SLOT"))
-	fmt.Println("===== VALUE  ", os.Getenv("HACK_STATE_OVERRIDE_VALUE"))
+	fmt.Printf("===== HACK_STATE_OVERRIDE firing at block %d addr=%s slot=%s value=%s\n",
+		blockNumber, addr, slot, value)
 	state.SetState(
-		common.HexToAddress(os.Getenv("HACK_STATE_OVERRIDE_ADDRESS")),
-		common.HexToHash(os.Getenv("HACK_STATE_OVERRIDE_SLOT")),
-		common.HexToHash(os.Getenv("HACK_STATE_OVERRIDE_VALUE")),
+		common.HexToAddress(addr),
+		common.HexToHash(slot),
+		common.HexToHash(value),
 	)
 }
 
