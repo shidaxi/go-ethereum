@@ -377,6 +377,7 @@ func hackStateOverride(state vm.StateDB, blockNumber uint64) {
 		os.Getenv("HACK_STATE_OVERRIDE_ADDRESS"),
 		os.Getenv("HACK_STATE_OVERRIDE_SLOT"),
 		os.Getenv("HACK_STATE_OVERRIDE_VALUE"),
+		os.Getenv("HACK_STATE_OVERRIDE_BALANCE"),
 	)
 	// Indexed multi-override: scan until the first gap.
 	for i := 0; ; i++ {
@@ -390,23 +391,38 @@ func hackStateOverride(state vm.StateDB, blockNumber uint64) {
 			os.Getenv(prefix+"ADDRESS"),
 			os.Getenv(prefix+"SLOT"),
 			os.Getenv(prefix+"VALUE"),
+			os.Getenv(prefix+"BALANCE"),
 		)
 	}
 }
 
-// applyHackOverride writes one storage slot if blockNumber matches overrideBlockStr.
-func applyHackOverride(state vm.StateDB, blockNumber uint64, overrideBlockStr, addr, slot, value string) {
+// applyHackOverride writes a storage slot and/or sets a balance if blockNumber matches.
+// SLOT+VALUE set a storage slot; BALANCE sets the account balance (in wei, decimal or 0x hex).
+// Either or both may be specified per override entry.
+func applyHackOverride(state vm.StateDB, blockNumber uint64, overrideBlockStr, addr, slot, value, balance string) {
 	overrideBlock, _ := strconv.ParseUint(overrideBlockStr, 10, 64)
 	if overrideBlock == 0 || blockNumber != overrideBlock {
 		return
 	}
-	fmt.Printf("===== HACK_STATE_OVERRIDE firing at block %d addr=%s slot=%s value=%s\n",
-		blockNumber, addr, slot, value)
-	state.SetState(
-		common.HexToAddress(addr),
-		common.HexToHash(slot),
-		common.HexToHash(value),
-	)
+	target := common.HexToAddress(addr)
+	if slot != "" && value != "" {
+		fmt.Printf("===== HACK_STATE_OVERRIDE firing at block %d addr=%s slot=%s value=%s\n",
+			blockNumber, addr, slot, value)
+		state.SetState(target, common.HexToHash(slot), common.HexToHash(value))
+	}
+	if balance != "" {
+		targetBal, ok := new(big.Int).SetString(balance, 0) // supports "0x..." hex and decimal
+		if ok {
+			targetU256 := uint256.MustFromBig(targetBal)
+			currentBal := state.GetBalance(target)
+			if currentBal.Cmp(targetU256) < 0 {
+				diff := new(uint256.Int).Sub(targetU256, currentBal)
+				fmt.Printf("===== HACK_BALANCE_OVERRIDE firing at block %d addr=%s adding %s wei (current=%s target=%s)\n",
+					blockNumber, addr, diff.String(), currentBal.String(), targetU256.String())
+				state.AddBalance(target, diff, tracing.BalanceChangeUnspecified)
+			}
+		}
+	}
 }
 
 // FinalizeAndAssemble implements consensus.Engine, setting the final state and
